@@ -1,0 +1,31 @@
+body {
+	color: #3F3F3F;
+	margin: 0;
+	background-color: #fff;
+    font-family: 'Book Antiqua', Palatino, 'Palatino Linotype', 'Palatino LT STD', Georgia, serif;
+	padding: 5px;
+	font-size: 1.1em;
+}
+
+div#image-credits {
+	font-size: 5px;
+	font-weight: bold;
+	text-align:center;
+}
+
+div#banner {
+	margin-left: auto;
+	margin-right: auto;
+	width: 80%;
+
+	img {
+		width: 100%
+	}
+
+	h1 {
+		font-size: 5em;
+		text-align: center;
+	}
+}
+
+@import './project/project-details/screenshots/screenshot-list/screenshot-list'

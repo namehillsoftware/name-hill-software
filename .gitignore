@@ -1,0 +1,8 @@
+.settings
+.metadata
+/node_modules/
+/npm-debug.log
+/build/
+/projects/
+ssh-config.json
+app-config.json
