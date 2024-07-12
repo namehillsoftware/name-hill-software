@@ -1,153 +1,238 @@
-const gulp = require('gulp');
-const gutil = require('gulp-util');
-const uglify = require('gulp-uglify');
-const through2 = require('through2');
-const React = require('react');
-const ReactDomServer = require('react-dom/server');
-const htmlmin = require('gulp-htmlmin');
-const gulpBabel = require('gulp-babel');
-const path = require('path');
-const appConfig = require('./app-config.json');
+import { createRequire } from "module"
+const require = createRequire(import.meta.url);
+
+import path, {dirname} from 'path';
+import React from 'react';
+import ReactDomServer from 'react-dom/server';
+import htmlmin from 'gulp-htmlmin';
+import del from 'del';
+import rename from 'gulp-rename';
+import through2 from 'through2';
+import * as vm from "vm";
+import gulp from 'gulp';
+import {fileURLToPath} from "url";
+import projectLoader from "./app/project-loader.js";
+import {promisify} from "util";
+import fs from "fs";
+import clientRollupConfig from "./client-rollup-config.js";
+import serverRollupConfig from "./server-rollup-config.js";
+import cleanCss from "gulp-clean-css";
+
+import {rollup} from "rollup";
 const os = require('os');
 const parallel = require('concurrent-transform');
-const revertPath = require('gulp-revert-path');
-const del = require('del');
-const cssnano = require('gulp-cssnano');
-const rename = require('gulp-rename');
-const babelify = require('babelify');
-const browserify = require('browserify');
-const imageResize = require('gulp-image-resize');
-const sass = require('gulp-sass');
 
-const gulpSsh = require('gulp-ssh')({
-	ignoreErrors: false,
-	// set this from a config file
-	sshConfig: require('./ssh-config.json')
-});
+const __filename = fileURLToPath(import.meta.url);
+
+const __dirname = dirname(__filename);
+const sass = require('sass');
+const gulpSass = require('gulp-sass')(sass);
+
+const Jimp = require("jimp");
+const appConfig = require('./app-config.json');
 
 const numberOfCpus = os.cpus().length;
 
 const nodeModuleDir = path.join(__dirname, './node_modules');
 
-const jsxToHtml = (options) =>
-	through2.obj(function (file, enc, cb) {
-		require('node-jsx').install({extension: '.jsx'});
+const promiseMkDir = promisify(fs.mkdir);
+const promiseCopyFile = promisify(fs.copyFile);
+const promiseStream = (gulpStream) => new Promise((resolve, reject) => gulpStream.on('end', resolve).on('error', reject));
 
-		var component = require(file.path);
-		component = component.default || component;
-		console.log(component);
-		const markup = '<!doctype html>' + ReactDomServer.renderToStaticMarkup(React.createElement(component, options));
-		file.contents = new Buffer(markup);
-		file.path = gutil.replaceExtension(file.path, '.html');
+let outputDir = path.join(__dirname, './build');
+const getOutputDir = (relativeDir) => path.join(outputDir, relativeDir || '');
+const getInputDir = (relativeDir) => path.join(__dirname, relativeDir || '');
 
-		this.push(file);
+function jsxToHtml(options) {
+	return through2.obj(function (file, enc, next) {
+		try {
+			require('node-jsx').install({extension: '.jsx'});
 
-		cb();
-	});
+			let component = {};
 
-const hashDest = (dest, opts) =>
-	through2.obj((file, enc, cb) => {
-		opts = opts || {};
+			if (file.contents) {
+				const js = file.contents.toString();
+				const script = new vm.Script(`
+((module, require) => {
+${js}
 
-		dest[file.path.replace(file.base, '')] = opts.onStore ? opts.onStore(file.contents) : file.contents.toString(opts.enc || enc);
-		cb();
-	});
-
-gulp.task('clean-build', (cb) => { del(['build']).then(() => cb()); });
-
-gulp.task('build-css', [ 'clean-build' ],
-	() => gulp.src('./app/index/index.scss')
-		.pipe(sass({ includePaths: [nodeModuleDir] }).on('error', sass.logError))
-		.pipe(cssnano())
-		.pipe(gulp.dest('./build/public')));
-
-gulp.task('build-svg', ['clean-build'],
-	() =>
-		gulp.src('./app/index/*.svg')
-			.pipe(gulp.dest('build/public')));
-
-gulp.task('project-images', () => {
-	const destDir = './build/public/imgs/projects';
-	return gulp.src('./projects/**/imgs/*')
-			.pipe(parallel(
-				imageResize({ height: 300 }),
-				os.cpus().length
-			))
-			.pipe(gulp.dest(destDir));
+return module.exports;
 });
+`);
+				component = script.runInThisContext()(require('node:module'), require);
+			}
 
-gulp.task('slick-blobs', [ 'clean-build', 'project-images' ], () =>
-	gulp.src([`${nodeModuleDir}/slick-carousel/slick/**/*.{woff,tff,gif,jpg,png}`]).pipe(gulp.dest('./build/public')));
+			if (!component) {
+				component = file.contents || require(file.path);
+				component = component.default || component;
+			}
 
-gulp.task('client-js', ['clean-build', 'slick-blobs'], () =>
-	gulp.src('app/**/*.client.{js,jsx}')
+			const markup = `<!doctype html>${ReactDomServer.renderToStaticMarkup(React.createElement(component, options))}`;
+			file.contents = Buffer.from(markup);
+			file.path = file.path.replace(path.extname(file.path), '.html');
+
+			next(null, file);
+		} catch (e) {
+			next(e);
+		}
+	});
+}
+
+const cleanBuild = () => del(['build']);
+
+const npmSassAliases = {};
+/**
+ * Will look for .scss|sass files inside the node_modules folder
+ */
+function npmSassResolver(url, file, done) {
+	// check if the path was already found and cached
+	if(npmSassAliases[url]) {
+		return done({ file: npmSassAliases[url] });
+	}
+
+	// look for modules installed through npm
+	try {
+		const newPath = require.resolve(url);
+		npmSassAliases[url] = newPath; // cache this request
+		return done({ file: newPath });
+	} catch(e) {
+		// if your module could not be found, just return the original url
+		npmSassAliases[url] = url;
+		return done({ file: url });
+	}
+}
+
+function deSassify() {
+	return gulpSass(
+		{
+			importer: npmSassResolver
+		}).on('error', gulpSass.logError);
+}
+
+// copy slick carousel blobs
+function collectSlickBlobs() {
+	return gulp
+		.src([`${nodeModuleDir}/slick-carousel/slick/**/*.{woff,tff,gif,jpg,png}`])
+		.pipe(gulp.dest(getOutputDir('public')));
+}
+
+// Bundle SASS
+function transformSass() {
+	return gulp.src(getInputDir('app/index/index.scss'))
+		.pipe(deSassify())
+		.pipe(cleanCss())
+		.pipe(gulp.dest(getOutputDir('public')));
+}
+
+const buildCss = gulp.parallel(collectSlickBlobs, transformSass);
+
+function copySvg() {
+	return gulp
+		.src('./app/index/*.svg')
+		.pipe(gulp.dest(getOutputDir('public')));
+}
+
+async function buildProjectImages() {
+	const inputDir = appConfig.projectsLocation;
+	const projects = await projectLoader(inputDir);
+
+	const destDir = getOutputDir('public/imgs/projects');
+	await Promise.all(projects
+		.flatMap(p => [p.image?.url, ...p.examples.map(i => i.url)])
+		.filter(uri => uri)
+		.map(async uri => {
+			if (!uri || uri.startsWith("http://") || uri.startsWith("https://")) return;
+
+			const destination = path.join(destDir, path.relative(inputDir, uri));
+			if (path.extname(destination) === ".svg") {
+				const directory = path.dirname(destination);
+				console.log(`Making directory ${directory}.`);
+				await promiseMkDir(directory, { recursive: true })
+				await promiseCopyFile(uri, destination)
+				return;
+			}
+
+			const image = await Jimp.read(uri);
+			const resizedImage = image.resize(Jimp.AUTO, 300);
+			await resizedImage.write(destination);
+		}));
+}
+
+function buildClientJs() {
+	const destDir = getOutputDir('public/js');
+
+	return gulp.src(getInputDir('app/**/*.client.{js,jsx}'))
 		.pipe(parallel(
-			through2.obj((file, enc, next) =>
-				browserify(file.path, { extensions: '.jsx', debug: false })
-					.transform(babelify, { presets: [ 'es2015', 'react' ] })
-					.bundle((err, res) => {
-						if (err) console.log(err);
-						// assumes file.contents is a Buffer
-						else file.contents = res;
+			through2.obj(async (file, enc, next) => {
+				try {
+					const bundle = await rollup(Object.assign(
+						clientRollupConfig,
+						{
+							input: file.path,
+						}));
 
-						next(null, file);
-					})),
+					const {output} = await bundle.generate({format: 'iife'});
+
+					file.contents = Buffer.from(output[0].code);
+
+					next(null, file);
+				} catch (e) {
+					next(e);
+				}
+			}),
 			numberOfCpus))
 		.pipe(rename({
 			dirname: '',
 			extname: '.js'
 		}))
-		.pipe(parallel(uglify(), numberOfCpus))
-		.pipe(gulp.dest('./build/public/js')));
+		.pipe(gulp.dest(destDir));
+}
 
-const projectMarkdown = {};
-gulp.task('store-project-markdown',
-	() =>
-		gulp
-			.src(path.join(appConfig.projectsLocation, '*/features.md'))
-			.pipe(hashDest(projectMarkdown)));
+function bundleServerJs() {
+	return through2.obj(async function (file, enc, next) {
+		try {
+			const bundle = await rollup(Object.assign(
+				serverRollupConfig,
+				{
+					input: file.path,
+				}));
 
-const projectData = {};
-gulp.task('store-project-json', ['store-project-markdown'],
-	() =>
-		gulp
-			.src(path.join(appConfig.projectsLocation, 'projects.json'))
-			.pipe(hashDest(projectData, {
-				onStore: (data) => {
-					const projects = JSON.parse(data);
-					projects.forEach((project) => {
-						project.features = projectMarkdown[project.name + '/features.md'];
-					});
+			const { output } = await bundle.generate({format: 'cjs'});
 
-					return projects;
-				}
-			})));
+			file.contents = Buffer.from(output[0].code);
+			file.path = file.path.replace(path.extname(file.path), '.cjs');
 
-gulp.task('build-server-js', ['clean-build'],
-	() =>
-		gulp
-			.src([ './app/**/*.jsx' ])
-			.pipe(parallel(gulpBabel({ presets: [ 'es2015', 'react', '@niftyco/babel-node' ] }), numberOfCpus))
-			.pipe(revertPath())
-			.pipe(parallel(uglify(), numberOfCpus))
-			.pipe(gulp.dest('build')));
+			next(null, file);
+		} catch (e) {
+			next(e);
+		}
+	});
+}
 
-gulp.task('build-static', ['build-server-js', 'store-project-json', 'build-css', 'build-svg'],
-	() =>
-		gulp
-			.src('./build/index/index.jsx')
-			.pipe(jsxToHtml({projects: projectData['projects.json'] || []}))
-			.pipe(htmlmin())
-			.pipe(gulp.dest('./build/public')));
+async function buildServerJs() {
+	const portfolios = await projectLoader(appConfig.projectsLocation);
 
-gulp.task('build', [ 'build-static', 'client-js' ]);
+	await promiseStream(gulp
+		.src('./app/index/index.jsx')
+		.pipe(bundleServerJs())
+		.pipe(jsxToHtml({projects: portfolios}))
+		.pipe(htmlmin())
+		.pipe(gulp.dest('./build/public')));
+}
 
-gulp.task('watch', ['build'], () => {
-	gulp.watch('./app/**/*.{jsx,css,svg}', ['build-static']);
-});
+const build = gulp.series(
+	cleanBuild,
+	gulp.parallel(
+		buildServerJs,
+		buildProjectImages,
+		buildCss,
+		copySvg,
+		buildClientJs,
+	),
+)
 
-gulp.task('publish', ['build-static'],
-	() =>
-		gulp
-			.src(['./build/**/*', './package.json'])
-			.pipe(gulpSsh.dest('/home/protected/app')));
+// gulp.task('watch', ['build'], () => {
+// 	gulp.watch('./app/**/*.{jsx,css,svg}', ['build-static']);
+// });
+
+export { build };
