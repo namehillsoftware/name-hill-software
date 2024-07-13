@@ -209,8 +209,21 @@ function bundleServerJs() {
 	});
 }
 
-async function buildServerJs() {
+async function buildServerHtml() {
 	const portfolios = await projectLoader(appConfig.projectsLocation);
+	const projectsLocation = appConfig.projectsLocation;
+	const imgDir = 'imgs/projects';
+	for (const portfolio of portfolios) {
+		const {image, examples} = portfolio;
+
+		if (image) {
+			image.url = path.join(imgDir, path.relative(projectsLocation, image.url));
+		}
+
+		for (const example of examples) {
+			example.url = path.join(imgDir, path.relative(projectsLocation, example.url));
+		}
+	}
 
 	await promiseStream(gulp
 		.src('./app/index/index.jsx')
@@ -223,7 +236,7 @@ async function buildServerJs() {
 const build = gulp.series(
 	cleanBuild,
 	gulp.parallel(
-		buildServerJs,
+		buildServerHtml,
 		buildProjectImages,
 		buildCss,
 		copySvg,
