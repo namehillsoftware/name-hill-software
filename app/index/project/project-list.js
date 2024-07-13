@@ -1,5 +1,7 @@
-import { script } from 'react-hyperscript-helpers';
-import ProjectDetails from './project-details/project-details.jsx';
+import pkg from 'react-hyperscript-helpers';
+const { script } = pkg;
+
+import ProjectDetails from './project-details/project-details.js';
 
 export default (props) =>
 	props.projects.map((project) => ProjectDetails({ project: project }))

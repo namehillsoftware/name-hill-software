@@ -5,9 +5,6 @@
   "author": "davidvedvick",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "release": "NODE_ENV=production gulp --gulpfile gulpfile-publish.js buildStatic && cp app-config.json build/app-config.json && cd build && ./start-server.sh",
-    "debug": "NODE_ENV=development cd app && gulp && node app-debug.js",
     "build": "npm install && NODE_ENV=production gulp --gulpfile=gulpfile.js build"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 import pkg from 'react-hyperscript-helpers';
 const { html, head, meta, link, title, body, div, img, p, h1 } = pkg;
-import ProjectList from './project/project-list.jsx';
+import ProjectList from './project/project-list.js';
 
 const index = (props) => {
 	const header = 'Name Hill Software';

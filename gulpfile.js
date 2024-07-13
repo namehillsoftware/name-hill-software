@@ -8,17 +8,16 @@ import htmlmin from 'gulp-htmlmin';
 import del from 'del';
 import rename from 'gulp-rename';
 import through2 from 'through2';
-import * as vm from "vm";
 import gulp from 'gulp';
 import {fileURLToPath} from "url";
 import projectLoader from "./app/project-loader.js";
 import {promisify} from "util";
 import fs from "fs";
 import clientRollupConfig from "./client-rollup-config.js";
-import serverRollupConfig from "./server-rollup-config.js";
 import cleanCss from "gulp-clean-css";
 
 import {rollup} from "rollup";
+
 const os = require('os');
 const parallel = require('concurrent-transform');
 
@@ -44,28 +43,10 @@ const getOutputDir = (relativeDir) => path.join(outputDir, relativeDir || '');
 const getInputDir = (relativeDir) => path.join(__dirname, relativeDir || '');
 
 function jsxToHtml(options) {
-	return through2.obj(function (file, enc, next) {
+	return through2.obj(async function (file, enc, next) {
 		try {
-			require('node-jsx').install({extension: '.jsx'});
-
-			let component = {};
-
-			if (file.contents) {
-				const js = file.contents.toString();
-				const script = new vm.Script(`
-((module, require) => {
-${js}
-
-return module.exports;
-});
-`);
-				component = script.runInThisContext()(require('node:module'), require);
-			}
-
-			if (!component) {
-				component = file.contents || require(file.path);
-				component = component.default || component;
-			}
+			let component = await import(file.path);
+			component = component.default || component;
 
 			const markup = `<!doctype html>${ReactDomServer.renderToStaticMarkup(React.createElement(component, options))}`;
 			file.contents = Buffer.from(markup);
@@ -188,27 +169,6 @@ function buildClientJs() {
 		.pipe(gulp.dest(destDir));
 }
 
-function bundleServerJs() {
-	return through2.obj(async function (file, enc, next) {
-		try {
-			const bundle = await rollup(Object.assign(
-				serverRollupConfig,
-				{
-					input: file.path,
-				}));
-
-			const { output } = await bundle.generate({format: 'cjs'});
-
-			file.contents = Buffer.from(output[0].code);
-			file.path = file.path.replace(path.extname(file.path), '.cjs');
-
-			next(null, file);
-		} catch (e) {
-			next(e);
-		}
-	});
-}
-
 async function buildServerHtml() {
 	const portfolios = await projectLoader(appConfig.projectsLocation);
 	const projectsLocation = appConfig.projectsLocation;
@@ -226,9 +186,8 @@ async function buildServerHtml() {
 	}
 
 	await promiseStream(gulp
-		.src('./app/index/index.jsx')
-		.pipe(bundleServerJs())
-		.pipe(jsxToHtml({projects: portfolios}))
+		.src('./app/index/index.js')
+		.pipe(jsxToHtml( {projects: portfolios}))
 		.pipe(htmlmin())
 		.pipe(gulp.dest('./build/public')));
 }
