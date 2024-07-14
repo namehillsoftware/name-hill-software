@@ -1,6 +1,7 @@
 import { createRequire } from "module"
 const require = createRequire(import.meta.url);
 
+import 'dotenv/config'
 import path, {dirname} from 'path';
 import React from 'react';
 import ReactDomServer from 'react-dom/server';
@@ -28,7 +29,8 @@ const sass = require('sass');
 const gulpSass = require('gulp-sass')(sass);
 
 const Jimp = require("jimp");
-const appConfig = require('./app-config.json');
+
+const projectsLocation = process.env.PROJECTS_LOCATION;
 
 const numberOfCpus = os.cpus().length;
 
@@ -114,8 +116,7 @@ function copySvg() {
 }
 
 async function buildProjectImages() {
-	const inputDir = appConfig.projectsLocation;
-	const projects = await projectLoader(inputDir);
+	const projects = await projectLoader(projectsLocation);
 
 	const destDir = getOutputDir('public/imgs/projects');
 	await Promise.all(projects
@@ -124,7 +125,7 @@ async function buildProjectImages() {
 		.map(async uri => {
 			if (!uri || uri.startsWith("http://") || uri.startsWith("https://")) return;
 
-			const destination = path.join(destDir, path.relative(inputDir, uri));
+			const destination = path.join(destDir, path.relative(projectsLocation, uri));
 			if (path.extname(destination) === ".svg") {
 				const directory = path.dirname(destination);
 				console.log(`Making directory ${directory}.`);
@@ -170,8 +171,7 @@ function buildClientJs() {
 }
 
 async function buildServerHtml() {
-	const portfolios = await projectLoader(appConfig.projectsLocation);
-	const projectsLocation = appConfig.projectsLocation;
+	const portfolios = await projectLoader(projectsLocation);
 	const imgDir = 'imgs/projects';
 	for (const portfolio of portfolios) {
 		const {image, examples} = portfolio;

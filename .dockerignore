@@ -1,0 +1,4 @@
+node_modues/**/*
+publish-site.sh
+staging
+.env

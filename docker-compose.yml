@@ -1,0 +1,6 @@
+services:
+  npm:
+    image: node:20.8.0
+    entrypoint: ["npm"]
+    environment:
+      PROJECTS_LOCATION: ${PROJECTS_LOCATION}

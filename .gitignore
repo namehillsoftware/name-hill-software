@@ -5,7 +5,6 @@
 /build/
 /projects/
 ssh-config.json
-app-config.json
 .idea
 /app/content/projects/
 /bower_components/
