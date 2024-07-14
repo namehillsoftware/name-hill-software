@@ -8,14 +8,7 @@ docker compose build && docker compose run --rm \
 
 EXIT_CODE=${PIPESTATUS[0]}
 
-rsync -avzh \
-  --include='*.html' \
-  --include='*.png' \
-  --include='*.svg' \
-  --include='*.jpg' \
-  --include='*/' \
-  --exclude='*' \
-  --prune-empty-dirs \
+rsync -avzh --delete --log-file=rsync-log \
   ./build/public/ "$SSH_USERNAME"@"$SSH_HOST":/home/public
 
 EXIT_CODE=${PIPESTATUS[0]}
