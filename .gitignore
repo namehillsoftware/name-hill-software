@@ -5,4 +5,15 @@
 /build/
 /projects/
 ssh-config.json
-app-config.json
+.idea
+/app/content/projects/
+/bower_components/
+/js/
+/css/
+/public/
+/protected/
+/app/public/
+report.*.json
+.env
+staging
+rsync-log
